@@ -1,0 +1,65 @@
+name: Security Scan
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks secrets scan
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan git history
+        run: gitleaks git --no-banner --redact --log-opts="--all" .
+
+      - name: Scan working tree
+        run: gitleaks dir --no-banner --redact .
+
+  email-metadata:
+    name: Commit email metadata scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject Gmail in commit metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git log --all --format='%H%x09%ae%x09%ce' \
+            | awk -F '\t' '
+                tolower($2) ~ /@gmail[.]com$/ || tolower($3) ~ /@gmail[.]com$/ {
+                  print $1
+                  found = 1
+                }
+                END { exit found ? 1 : 0 }
+              '; then
+            echo "No Gmail commit metadata found."
+          else
+            echo "::error::Gmail address found in git author/committer metadata. Use a GitHub noreply address before committing."
+            exit 1
+          fi

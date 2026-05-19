@@ -1,0 +1,220 @@
+name: Release
+
+# Builds the macOS .app bundle and Python wheel/sdist on tag push,
+# then attaches them to a GitHub release. The in-app update banner
+# points at the release's html_url so users can grab the zip directly.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.2.0)"
+        required: true
+
+jobs:
+  build-macos-app:
+    name: Build macOS app
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve and validate tag
+        id: version
+        env:
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${DISPATCH_TAG}"
+          else
+            TAG="${GITHUB_REF##refs/tags/}"
+          fi
+          # Strict allow-list: v + semver-ish digits/dots, optional prerelease/build suffix.
+          # Refuses anything that could escape the shell or inject metadata.
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.]+)?$ ]]; then
+            echo "::error::Refusing untrusted tag: $TAG"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install Homebrew dependencies
+        run: |
+          brew install ffmpeg yt-dlp
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build .app bundle
+        run: |
+          chmod +x scripts/build-macos-app.sh
+          ./scripts/build-macos-app.sh
+
+      - name: Verify .app exists
+        run: |
+          test -d dist/ForMyDJ.app || { echo "::error::dist/ForMyDJ.app missing after build"; exit 1; }
+
+      - name: Zip .app for distribution
+        id: zip
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          ZIP_NAME="ForMyDJ-macOS-${VERSION}.zip"
+          # ditto preserves macOS metadata, code signatures, and extended attributes -
+          # plain `zip` would strip them and break Gatekeeper on download.
+          ditto -c -k --sequesterRsrc --keepParent ForMyDJ.app "$ZIP_NAME"
+          echo "name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "path=dist/$ZIP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ForMyDJ-macOS
+          path: ${{ steps.zip.outputs.path }}
+          if-no-files-found: error
+
+  build-python-package:
+    name: Build Python wheel + sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Upload python artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ForMyDJ-python
+          path: dist/*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub release
+    needs: [build-macos-app, build-python-package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve and validate tag
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${DISPATCH_TAG}"
+          else
+            TAG="${GITHUB_REF##refs/tags/}"
+          fi
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.]+)?$ ]]; then
+            echo "::error::Refusing untrusted tag: $TAG"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download macOS app artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ForMyDJ-macOS
+          path: release-assets
+
+      - name: Download Python artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ForMyDJ-python
+          path: release-assets
+
+      - name: List assets
+        run: ls -la release-assets
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ForMyDJ ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release-assets/*
+          body: |
+            ## Install
+
+            **Most people: download the macOS app**
+
+            Download `ForMyDJ-macOS-*.zip` below, unzip it, move `ForMyDJ.app` to `/Applications`, then open it.
+
+            Current public releases still need the two local media tools installed once:
+
+            1. Install Homebrew if your Mac does not have it yet:
+
+            ```bash
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            ```
+
+            2. Install the two media tools ForMyDJ uses:
+
+            ```bash
+            brew install ffmpeg yt-dlp
+            ```
+
+            On first launch, right-click the app and choose Open to bypass the unidentified-developer prompt.
+
+            **Why these downloads exist:**
+            - `ForMyDJ.app` is the app window, queue, format choices, filenames, metadata cleanup, and DJ-specific warnings.
+            - `yt-dlp` gets authorized audio streams and metadata from SoundCloud or YouTube.
+            - `ffmpeg` / `ffprobe` reads audio details and converts files to MP3, WAV, or AIFF.
+            - Docker is not required for normal Mac users.
+
+            The product goal is to bundle the media tools inside the macOS app release so regular users only download ForMyDJ.
+
+            **Developers and source-code ZIP users:**
+
+            GitHub's **Code -> Download ZIP** button downloads source code, not the ready-to-use app. Docker can run the source in an isolated environment:
+
+            ```bash
+            docker compose up --build
+            ```
+
+            Then open `http://127.0.0.1:8765`. Docker installs Python, `ffmpeg`, `ffprobe`, and `yt-dlp` inside the container and writes finished tracks to `./downloads`.
+
+            **Cross-platform CLI:**
+
+            ```bash
+            pip install -U "git+https://github.com/sloppamadewithlove/ForMyDJs.git@${{ steps.tag.outputs.tag }}"
+            ```
+
+            CLI installs still require the system media tools:
+            - macOS: `brew install ffmpeg yt-dlp`
+            - Linux: install `ffmpeg` with your package manager and install `yt-dlp`
+            - Windows: install `ffmpeg` and `yt-dlp` with Scoop, winget, or another package manager
+
+            Or update an existing install:
+
+            ```bash
+            formydj check-update
+            pip install -U "git+https://github.com/sloppamadewithlove/ForMyDJs.git"
+            ```
+
+            ## Notes
+            - This project is for music you are authorized to access. It does not bypass DRM, paywalls, private accounts, or platform restrictions.
+            - The app no longer auto-creates a `ForMyDJ` folder. You pick the output folder.

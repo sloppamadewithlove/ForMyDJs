@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "formydj"
+version = "0.2.0"
+description = "Local audio downloader/converter for DJs. Source-matching, bit-exact passthrough. Cross-platform CLI + macOS app."
+readme = "README.md"
+requires-python = ">=3.9,<3.13"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Vyacheslav Porollo" }
+]
+keywords = ["dj", "audio", "soundcloud", "youtube", "yt-dlp", "ffmpeg", "wav", "aiff", "mp3"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio :: Conversion",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/sloppamadewithlove/ForMyDJs"
+Repository = "https://github.com/sloppamadewithlove/ForMyDJs"
+Issues = "https://github.com/sloppamadewithlove/ForMyDJs/issues"
+
+[project.scripts]
+formydj = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["tests*", "scripts*", "dist*", ".build*", "Sources*"]
+
+[tool.setuptools.package-data]
+"app" = ["static/*", "static/**/*"]

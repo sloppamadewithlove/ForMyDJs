@@ -1,0 +1,13 @@
+services:
+  formydj:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      FORMYDJ_HOST: 0.0.0.0
+      FORMYDJ_PORT: 8765
+      FORMYDJ_NO_BROWSER: "1"
+      FORMYDJ_OUTPUT_DIR: /downloads
+    volumes:
+      - ./downloads:/downloads
+    restart: unless-stopped

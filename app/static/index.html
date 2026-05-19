@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ForMyDJ</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="updateBanner" class="fm-update" hidden>
+      <span class="fm-update-text"></span>
+      <a id="updateLink" class="fm-update-link" href="#" target="_blank" rel="noopener">Download</a>
+      <button id="updateDismiss" class="fm-update-close" type="button" aria-label="Dismiss update notice">×</button>
+    </div>
+    <main class="fm-wrap">
+      <header class="fm-header">
+        <div class="fm-spacer"></div>
+        <h1 class="fm-title">ForMyDJ</h1>
+        <div class="fm-keytoggle" role="group" aria-label="Key notation">
+          <button type="button" class="opt active" data-key="std" aria-label="Standard key notation">Std</button>
+          <button type="button" class="opt" data-key="cam" aria-label="Camelot key notation">Cam</button>
+        </div>
+      </header>
+
+      <section class="fm-hero" aria-label="Download controls">
+        <form id="linkForm">
+          <input
+            id="linkInput"
+            class="fm-paste"
+            type="url"
+            placeholder="paste a SoundCloud or YouTube link…"
+            autocomplete="off"
+          />
+          <div class="fm-controls">
+            <button id="chooseOutput" type="button" class="ctl">
+              <span class="lbl">Folder:</span>
+              <span id="outputName">Choose folder</span>
+              <span class="caret">▾</span>
+            </button>
+            <div class="ctl format-ctl">
+              <span class="lbl">Format:</span>
+              <span class="value" id="formatValue">AIFF</span>
+              <span class="caret">▾</span>
+              <select id="formatSelect" name="format" aria-label="Output format">
+                <option value="wav">WAV</option>
+                <option value="aiff" selected>AIFF</option>
+                <option value="mp3">MP3 320</option>
+              </select>
+            </div>
+            <button id="downloadBtn" type="submit" class="ctl download" disabled>Download</button>
+          </div>
+          <input id="outputDir" type="hidden" />
+        </form>
+      </section>
+
+      <section class="fm-source-card" id="sourceCard" hidden aria-label="Source preview">
+        <div class="fm-source-cover">
+          <img id="sourceCover" alt="" />
+        </div>
+        <div class="fm-source-info">
+          <div class="fm-source-title" id="sourceTitle">—</div>
+          <div class="fm-source-meta" id="sourceMeta">—</div>
+        </div>
+        <div class="fm-source-pill" id="sourcePill">—</div>
+      </section>
+
+      <div class="fm-divider">
+        <div class="line"></div>
+        <span>Recent downloads</span>
+        <div class="line"></div>
+      </div>
+
+      <section id="history" class="fm-history" aria-label="Recent downloads"></section>
+
+      <button id="errorsTab" class="fm-tab" type="button" hidden aria-expanded="false" aria-controls="errorsPanel">
+        <span class="tablbl">errors</span>
+        <span id="errorsBadge" class="badge">0</span>
+      </button>
+
+      <section id="errorsPanel" class="fm-errors-panel" hidden aria-label="Error log"></section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

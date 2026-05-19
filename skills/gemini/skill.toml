@@ -1,0 +1,60 @@
+# Gemini CLI skill manifest for ForMyDJ.
+# Reference: https://github.com/google-gemini/gemini-cli (skills system)
+# Place this file at ~/.gemini/skills/formydj/skill.toml (or wherever the
+# Gemini CLI is configured to look) to make ForMyDJ available as a tool.
+
+[skill]
+name = "formydj"
+version = "0.2.0"
+description = """
+Local audio downloader/converter for DJs. Wraps yt-dlp + ffmpeg with smart
+source-matching (MP3 → MP3 bit-exact, WAV → WAV, FLAC → AIFF, Opus/AAC → MP3)
+and bit-exact passthrough when source codec matches target format.
+"""
+
+[skill.activation]
+keywords = ["soundcloud", "youtube", "convert audio", "dj track", "download mp3", "download wav"]
+
+[skill.install_check]
+# Gemini should run this to verify the CLI is available.
+command = "formydj --version"
+exit_code = 0
+
+[skill.install]
+# If the install_check fails, suggest these steps to the user.
+steps = [
+  "macOS:   brew install ffmpeg yt-dlp && pip install 'git+https://github.com/sloppamadewithlove/ForMyDJs.git'",
+  "Linux:   sudo apt-get install ffmpeg && pip install yt-dlp && pip install 'git+https://github.com/sloppamadewithlove/ForMyDJs.git'",
+  "Windows: scoop install ffmpeg yt-dlp && pip install 'git+https://github.com/sloppamadewithlove/ForMyDJs.git'",
+]
+
+[[skill.commands]]
+name = "url"
+description = "Download and convert a SoundCloud/YouTube link"
+example = "formydj url 'https://soundcloud.com/artist/track' --format auto"
+
+[[skill.commands]]
+name = "file"
+description = "Convert a local audio file"
+example = "formydj file ~/Downloads/track.mp3 --format auto"
+
+[[skill.commands]]
+name = "probe"
+description = "Inspect URL metadata and codec without downloading"
+example = "formydj probe 'https://youtu.be/dQw4w9WgXcQ' --json"
+
+[[skill.commands]]
+name = "check-update"
+description = "Check GitHub for a newer ForMyDJ release"
+example = "formydj check-update"
+
+[skill.flags]
+format = "auto | mp3 | wav | aiff (default: auto)"
+output = "Output directory (default: current working directory)"
+json = "Emit machine-readable JSON result"
+
+[skill.safety]
+respects_drm = true
+respects_paywalls = true
+local_only = true
+network = "outbound to source CDNs + api.github.com for update checks"
