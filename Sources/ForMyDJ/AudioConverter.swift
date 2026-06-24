@@ -22,7 +22,6 @@ enum AudioConverter {
             "-map_metadata", "0",
             "-ar", "44100",
             "-ac", "2",
-            "-af", "silenceremove=start_periods=1:start_threshold=-90dB:stop_periods=1:stop_threshold=-90dB",
             "-metadata", "title=\(metadata.title ?? title)",
             "-metadata", "artist=\(metadata.artist ?? artist)"
         ]
