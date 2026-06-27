@@ -423,11 +423,60 @@ function renderHistory() {
   renderCrate(done);
 }
 
+/* Keep one DOM node per active job alive across polls. Wiping and rebuilding
+   the list every 1.5s restarted the CSS swipe/pulse animations mid-cycle, which
+   read as a stutter ("goes a little, snaps back, then completes"). Reconciling
+   in place — touching a card only when its visible fields actually change —
+   lets the loading swipe run as one clean, uninterrupted sweep. */
+const activeCards = new Map(); // jobId -> { sig, el }
+
+function heroSignature(job) {
+  return JSON.stringify([
+    job.status,
+    job.cover_url || '',
+    job.title || job.input_value || '',
+    job.artist || '',
+    job.genre || '',
+    job.estimated_bpm || '',
+    job.estimated_key || '',
+    state.keyNotation,
+    job.format || '',
+    job.duration_seconds || '',
+    Array.isArray(job.waveform) ? job.waveform.length : 0,
+  ]);
+}
+
 function renderRendering(active) {
-  els.renderingList.replaceChildren();
   els.rendering.hidden = active.length === 0;
+  const list = els.renderingList;
+  const seen = new Set();
+  let prev = null;
+
   for (const job of active) {
-    els.renderingList.appendChild(buildRenderHero(job));
+    seen.add(job.id);
+    const sig = heroSignature(job);
+    let entry = activeCards.get(job.id);
+    if (!entry) {
+      entry = { sig, el: buildRenderHero(job) };
+      activeCards.set(job.id, entry);
+    } else if (entry.sig !== sig) {
+      const fresh = buildRenderHero(job); // one rebuild per real change, not per poll
+      entry.el.replaceWith(fresh);
+      entry.el = fresh;
+      entry.sig = sig;
+    }
+    // Place after `prev` without disturbing already-correct nodes (moving an
+    // attached node doesn't restart its animations; removing + re-adding would).
+    const anchor = prev ? prev.nextSibling : list.firstChild;
+    if (anchor !== entry.el) list.insertBefore(entry.el, anchor);
+    prev = entry.el;
+  }
+
+  for (const [id, entry] of activeCards) {
+    if (!seen.has(id)) {
+      entry.el.remove();
+      activeCards.delete(id);
+    }
   }
 }
 
