@@ -40,6 +40,8 @@ const els = {
   chooseOutput: document.getElementById('chooseOutput'),
   outputName:   document.getElementById('outputName'),
   history:      document.getElementById('history'),
+  rendering:    document.getElementById('rendering'),
+  renderingList: document.getElementById('renderingList'),
   keyToggle:    document.querySelectorAll('.fm-keytoggle .opt'),
   errorsTab:    document.getElementById('errorsTab'),
   errorsBadge:  document.getElementById('errorsBadge'),
@@ -411,26 +413,162 @@ function pushError(message) {
 /* -------- Rendering (stubs — filled in Tasks 8 & 10) -------- */
 
 function renderHistory() {
+  const active = [];
+  const done = [];
+  for (const job of state.history) {
+    if (job.status === 'finished' || job.status === 'failed') done.push(job);
+    else active.push(job);
+  }
+  renderRendering(active);
+  renderCrate(done);
+}
+
+function renderRendering(active) {
+  els.renderingList.replaceChildren();
+  els.rendering.hidden = active.length === 0;
+  for (const job of active) {
+    els.renderingList.appendChild(buildRenderHero(job));
+  }
+}
+
+function renderCrate(done) {
   els.history.replaceChildren();
-  if (state.history.length === 0) {
+  if (done.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'fm-empty';
     empty.textContent = "Crate's empty — paste a link and let's dig.";
     els.history.appendChild(empty);
     return;
   }
-  for (const job of state.history) {
-    els.history.appendChild(buildRow(job));
+  for (const job of done) {
+    els.history.appendChild(buildCrateRow(job));
   }
 }
 
-function buildRow(job) {
+const STAGE_RAIL = [
+  { key: 'downloading', label: 'digging' },
+  { key: 'analyzing',   label: 'reading the groove' },
+  { key: 'converting',  label: 'bouncing' },
+  { key: 'finished',    label: 'completed' },
+];
+
+/* ----- Rendering hero (active jobs) ----- */
+
+function buildRenderHero(job) {
+  const card = document.createElement('article');
+  card.className = 'fm-hero-card';
+
+  const art = document.createElement('div');
+  art.className = 'fm-hero-art';
+  if (job.cover_url) {
+    const img = document.createElement('img');
+    img.src = job.cover_url;
+    img.alt = '';
+    art.appendChild(img);
+  } else {
+    art.classList.add('placeholder');
+    art.textContent = '♪';
+  }
+  card.appendChild(art);
+
+  const mid = document.createElement('div');
+  mid.className = 'fm-hero-mid';
+
+  const title = document.createElement('div');
+  title.className = 'fm-hero-title';
+  title.textContent = job.title || job.input_value || 'Untitled';
+  mid.appendChild(title);
+
+  const artist = document.createElement('div');
+  artist.className = 'fm-hero-artist';
+  artist.textContent = [job.artist, job.genre].filter(Boolean).join(' · ') || '—';
+  mid.appendChild(artist);
+
+  mid.appendChild(buildBadges(job));
+  mid.appendChild(buildWaveform(job.waveform));
+  card.appendChild(mid);
+
+  card.appendChild(buildStageRail(job));
+  return card;
+}
+
+function buildBadges(job) {
+  const wrap = document.createElement('div');
+  wrap.className = 'fm-badges';
+  wrap.appendChild(makeBadge('bpm', job.estimated_bpm ? String(job.estimated_bpm) : '—', 'BPM'));
+  wrap.appendChild(makeBadge('key', formatKey(job.estimated_key, state.keyNotation), 'key'));
+  wrap.appendChild(makeBadge('fmt', (job.format || '').toUpperCase() || '—', 'format'));
+  wrap.appendChild(makeBadge('len', formatDuration(job.duration_seconds) || '—', 'length'));
+  return wrap;
+}
+
+function makeBadge(modifier, value, label) {
+  const badge = document.createElement('div');
+  badge.className = `fm-badge ${modifier}`;
+  const v = document.createElement('span');
+  v.className = 'v';
+  v.textContent = value;
+  const l = document.createElement('span');
+  l.className = 'l';
+  l.textContent = label;
+  badge.append(v, l);
+  return badge;
+}
+
+/**
+ * Render the real waveform (peaks 0..1 from the decoded audio). Real silence in
+ * the track surfaces as near-flat bars. Before analysis finishes there are no
+ * peaks yet, so we show a pending shimmer rather than fake a shape.
+ */
+function buildWaveform(waveform) {
+  const wrap = document.createElement('div');
+  wrap.className = 'fm-wave';
+  if (!Array.isArray(waveform) || waveform.length === 0) {
+    wrap.classList.add('pending');
+    return wrap;
+  }
+  for (const peak of waveform) {
+    const bar = document.createElement('i');
+    const value = Math.max(0, Math.min(1, Number(peak) || 0));
+    bar.style.height = `${Math.max(3, Math.round(value * 100))}%`;
+    wrap.appendChild(bar);
+  }
+  return wrap;
+}
+
+function buildStageRail(job) {
+  const rail = document.createElement('div');
+  rail.className = 'fm-rail';
+  const order = STAGE_RAIL.map((s) => s.key);
+  let current = order.indexOf(job.status);
+  if (job.status === 'queued') current = -1;
+
+  STAGE_RAIL.forEach((stage, i) => {
+    const step = document.createElement('div');
+    step.className = 'fm-step';
+    if (i < current) step.classList.add('done');
+    else if (i === current) step.classList.add('cur');
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    step.append(dot, document.createTextNode(stage.label));
+    rail.appendChild(step);
+    if (i < STAGE_RAIL.length - 1) {
+      const link = document.createElement('div');
+      link.className = i < current ? 'fm-link' : 'fm-link dim';
+      rail.appendChild(link);
+    }
+  });
+  return rail;
+}
+
+/* ----- Crate rows (completed / failed jobs) ----- */
+
+function buildCrateRow(job) {
   const article = document.createElement('article');
   article.className = 'fm-row';
   if (celebrateIds.has(job.id)) article.classList.add('celebrate');
 
-  const hasCover = Boolean(job.cover_url);
-  if (hasCover) {
+  if (job.cover_url) {
     const cover = document.createElement('div');
     cover.className = 'fm-cover';
     const img = document.createElement('img');
@@ -444,96 +582,36 @@ function buildRow(job) {
 
   const info = document.createElement('div');
   info.className = 'fm-info';
-
   const titleLine = document.createElement('div');
   titleLine.className = 'fm-title-line';
   titleLine.textContent = job.title || job.input_value || 'Untitled';
   info.appendChild(titleLine);
-
   const metaLine = document.createElement('div');
   metaLine.className = 'fm-meta-line';
-  buildMetaParts(metaLine, job);
+  metaLine.textContent = [job.artist, job.genre].filter(Boolean).join(' · ') || '—';
   info.appendChild(metaLine);
-
   article.appendChild(info);
 
-  const status = document.createElement('div');
-  status.className = 'fm-status';
-  buildStatus(status, job);
-  article.appendChild(status);
-
+  const chips = document.createElement('div');
+  chips.className = 'fm-chips';
+  if (job.status === 'finished') {
+    if (job.estimated_bpm) chips.appendChild(makeChip('bpm', String(job.estimated_bpm)));
+    const key = formatKey(job.estimated_key, state.keyNotation);
+    if (key && key !== '—') chips.appendChild(makeChip('key', key));
+    if (job.format) chips.appendChild(makeChip('fmt', job.format.toUpperCase()));
+    chips.appendChild(makePill('done', 'completed'));
+  } else {
+    chips.appendChild(makePill('fail', 'failed'));
+  }
+  article.appendChild(chips);
   return article;
 }
 
-function buildMetaParts(container, job) {
-  const parts = [
-    job.artist || '—',
-    job.genre || null,
-    formatDuration(job.duration_seconds),
-    formatKey(job.estimated_key, state.keyNotation),
-    (job.format || '').toUpperCase() || null,
-  ].filter(Boolean);
-
-  parts.forEach((part, index) => {
-    const span = document.createElement('span');
-    span.textContent = String(part);
-    container.appendChild(span);
-    if (index < parts.length - 1) {
-      const sep = document.createElement('span');
-      sep.className = 'sep';
-      sep.textContent = '·';
-      container.appendChild(sep);
-    }
-  });
-}
-
-const STAGE_ORDER = ['downloading', 'analyzing', 'converting'];
-const STAGE_LABELS = {
-  queued:      'queued up',
-  downloading: 'digging…',
-  analyzing:   'reading the groove…',
-  converting:  'bouncing…',
-};
-
-function buildStatus(container, job) {
-  if (job.status === 'finished') {
-    container.appendChild(makePill('done', 'locked in'));
-    return;
-  }
-  if (job.status === 'failed') {
-    container.appendChild(makePill('fail', 'failed'));
-    return;
-  }
-  if (!job.status || job.status === 'queued') {
-    container.appendChild(makePill('', STAGE_LABELS.queued));
-    return;
-  }
-
-  // Active job: stage dots + an indeterminate shimmer + a booth label.
-  const stageIndex = STAGE_ORDER.indexOf(job.status);
-  const wrap = document.createElement('div');
-  wrap.className = 'fm-stagewrap';
-
-  const dots = document.createElement('div');
-  dots.className = 'fm-stage-dots';
-  STAGE_ORDER.forEach((_, i) => {
-    const dot = document.createElement('i');
-    if (stageIndex >= 0 && i <= stageIndex) dot.classList.add('on');
-    if (stageIndex === i) dot.classList.add('live');
-    dots.appendChild(dot);
-  });
-  wrap.appendChild(dots);
-
-  const shimmer = document.createElement('div');
-  shimmer.className = 'fm-shimmer';
-  wrap.appendChild(shimmer);
-  container.appendChild(wrap);
-
-  let label = STAGE_LABELS[job.status] || job.status;
-  if (job.status === 'converting' && job.format) {
-    label = `bouncing → ${job.format.toUpperCase()}`;
-  }
-  container.appendChild(makePill('run', label));
+function makeChip(modifier, text) {
+  const chip = document.createElement('span');
+  chip.className = `fm-chip ${modifier}`;
+  chip.textContent = text;
+  return chip;
 }
 
 function makePill(modifier, label) {

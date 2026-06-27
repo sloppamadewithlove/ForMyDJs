@@ -77,13 +77,18 @@
         <div class="fm-source-pill" id="sourcePill">—</div>
       </section>
 
+      <section id="rendering" class="fm-rendering" hidden aria-label="Now rendering">
+        <div class="fm-seclabel"><span class="live" aria-hidden="true"></span> Rendering</div>
+        <div id="renderingList"></div>
+      </section>
+
       <div class="fm-divider">
         <div class="line"></div>
         <span>the crate</span>
         <div class="line"></div>
       </div>
 
-      <section id="history" class="fm-history" aria-label="Recent tracks"></section>
+      <section id="history" class="fm-history" aria-label="Completed tracks"></section>
 
       <button id="errorsTab" class="fm-tab" type="button" hidden aria-expanded="false" aria-controls="errorsPanel">
         <span class="tablbl">errors</span>
