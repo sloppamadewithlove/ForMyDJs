@@ -14,6 +14,8 @@
   --p-success:     #8ec196;
   --p-warning:     #e0b370;
   --p-danger:      #d28080;
+  --p-pink:        #f06ea9;
+  --p-violet:      #8b7cf6;
 
   /* Tactile depth — a top highlight + a grounded drop shadow read as a
      physical, pressable surface on the dark palette. */
@@ -100,11 +102,14 @@ button, input, select {
 
 .fm-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
   text-align: center;
   text-wrap: balance;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.55), 0 0 22px rgba(255, 255, 255, 0.28);
 }
 
 /* Sound toggle */
@@ -695,6 +700,184 @@ button, input, select {
   color: var(--p-success);
   border-color: var(--p-success);
 }
+
+/* ===== Club: Rendering section ===== */
+.fm-rendering { padding: 10px 22px 2px; }
+.fm-rendering[hidden] { display: none; }
+
+.fm-seclabel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--p-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  padding: 2px 0 10px;
+}
+.fm-seclabel .live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--p-danger);
+  box-shadow: 0 0 10px var(--p-danger);
+  animation: fm-live 1.4s ease-in-out infinite;
+}
+@keyframes fm-live { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+.fm-hero-card {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  grid-template-areas: "art mid" "rail rail";
+  gap: 16px;
+  align-items: center;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 38%), var(--p-surface);
+  border: 1px solid var(--p-edge);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--lift-rest);
+}
+
+.fm-hero-art {
+  grid-area: art;
+  width: 120px;
+  height: 120px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #3a2f55, #243a4a);
+  border: 1px solid rgba(109, 212, 216, 0.45);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4), 0 0 22px rgba(109, 212, 216, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.fm-hero-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  outline: 1px solid rgba(0, 0, 0, 0.18);
+  outline-offset: -1px;
+}
+
+.fm-hero-mid { grid-area: mid; min-width: 0; }
+.fm-hero-title {
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fm-hero-artist {
+  font-size: 12px;
+  color: var(--p-muted);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-badges { display: flex; gap: 8px; margin: 12px 0 10px; flex-wrap: wrap; }
+.fm-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--p-surface-2);
+  border: 1px solid var(--p-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.fm-badge .v {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--p-text);
+}
+.fm-badge .l {
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--p-muted-2);
+  margin-top: 4px;
+}
+.fm-badge.bpm .v { color: #fff; }
+.fm-badge.key { border-color: rgba(240, 110, 169, 0.45); box-shadow: 0 0 14px rgba(240, 110, 169, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.fm-badge.key .v { color: var(--p-pink); }
+.fm-badge.fmt { border-color: rgba(109, 212, 216, 0.45); box-shadow: 0 0 14px rgba(109, 212, 216, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.fm-badge.fmt .v { color: var(--p-accent); font-size: 14px; }
+.fm-badge.len .v { color: var(--p-muted); font-size: 14px; }
+
+/* Real waveform (peaks from decoded audio; silence reads as flat) */
+.fm-wave { display: flex; align-items: flex-end; gap: 2px; height: 40px; }
+.fm-wave i {
+  flex: 1;
+  min-width: 1px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--p-accent), #3d9da1);
+  box-shadow: 0 0 6px var(--p-accent-soft);
+  opacity: 0.92;
+}
+.fm-wave.pending {
+  position: relative;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--p-surface-2);
+  overflow: hidden;
+}
+.fm-wave.pending::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--p-accent-soft), transparent);
+  animation: fm-shimmer 1.2s linear infinite;
+}
+
+/* Stage rail */
+.fm-rail { grid-area: rail; display: flex; align-items: center; padding-top: 4px; }
+.fm-step { display: flex; align-items: center; gap: 7px; color: var(--p-muted-2); font-size: 10.5px; white-space: nowrap; }
+.fm-step .dot { width: 9px; height: 9px; border-radius: 50%; background: #3a4046; border: 1px solid var(--p-edge); }
+.fm-step.done { color: var(--p-muted); }
+.fm-step.done .dot { background: var(--p-accent); box-shadow: 0 0 7px var(--p-accent-soft); }
+.fm-step.cur { color: var(--p-accent); font-weight: 700; }
+.fm-step.cur .dot { background: var(--p-accent); box-shadow: 0 0 12px var(--p-accent); animation: fm-live 1.1s ease-in-out infinite; }
+.fm-link { flex: 1; height: 2px; margin: 0 8px; background: var(--p-accent); }
+.fm-link.dim { background: #2c3137; }
+
+/* Crate chips */
+.fm-chips { display: flex; align-items: center; gap: 7px; }
+.fm-chip {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--p-edge);
+  background: var(--p-surface-2);
+  font-variant-numeric: tabular-nums;
+  color: var(--p-text);
+}
+.fm-chip.bpm { color: #fff; }
+.fm-chip.key { color: var(--p-pink); border-color: rgba(240, 110, 169, 0.4); }
+.fm-chip.fmt { color: var(--p-accent); border-color: rgba(109, 212, 216, 0.4); }
+.fm-chips .pill {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--p-edge);
+  font-size: 10.5px;
+  background: transparent;
+  color: var(--p-muted);
+}
+.fm-chips .pill.done { color: var(--p-success); border-color: var(--p-success); }
+.fm-chips .pill.fail { color: var(--p-danger); border-color: var(--p-danger); }
 
 /* Respect users who prefer less motion */
 @media (prefers-reduced-motion: reduce) {

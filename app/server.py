@@ -36,6 +36,11 @@ MAX_ACTIVE_JOBS = 3
 MAX_KEY_SECONDS = 300
 KEY_SAMPLE_RATE = 11025
 PROBE_TIMEOUT_SECONDS = 10
+ANALYSIS_SAMPLE_RATE = 8000
+BPM_ANALYSIS_SECONDS = 120
+BPM_MIN = 70
+BPM_MAX = 180
+WAVEFORM_BUCKETS = 64
 UPDATE_CACHE = CACHE_DIR / "update-check.json"
 UPDATE_CHECK_MAX_AGE_SECONDS = 6 * 60 * 60  # 6 hours
 
@@ -606,6 +611,121 @@ def correlation(left, right):
     return numerator / max(math.sqrt(left_power * right_power), 0.000001)
 
 
+def _decode_mono_f32(audio_path, workdir, rate, seconds=None):
+    """Decode audio to mono float32 samples at `rate` for local DSP analysis."""
+    import array
+    raw_path = workdir / "analyze.f32"
+    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(audio_path)]
+    if seconds:
+        cmd += ["-t", str(seconds)]
+    cmd += ["-ac", "1", "-ar", str(rate), "-f", "f32le", str(raw_path)]
+    run(cmd)
+    data = raw_path.read_bytes()
+    usable = len(data) - (len(data) % 4)
+    samples = array.array("f")
+    samples.frombytes(data[:usable])
+    if os.sys.byteorder != "little":
+        samples.byteswap()
+    return samples
+
+
+def estimate_bpm(samples, rate):
+    """Estimate tempo from mono samples via an energy-onset envelope and
+    autocorrelation, folded into a dance-friendly range.
+
+    Real analysis of the actual audio (no metadata guess). Returns an int BPM,
+    or None when the signal is too short or too quiet to judge.
+    """
+    if not samples:
+        return None
+    hop = max(1, int(rate * 0.01))  # 10 ms frames
+    frame_count = (len(samples) - hop) // hop
+    if frame_count < 64:
+        return None
+
+    # Energy envelope per frame.
+    env = []
+    for f in range(frame_count):
+        start = f * hop
+        acc = 0.0
+        for v in samples[start:start + hop]:
+            acc += v * v
+        env.append(math.sqrt(acc / hop))
+
+    # Smooth the envelope (centered moving average) to suppress sub-audio
+    # beating/aliasing from sustained tones, leaving the slow tempo structure.
+    w = 2
+    smooth = []
+    for i in range(len(env)):
+        a = i - w if i - w > 0 else 0
+        b = i + w + 1 if i + w + 1 < len(env) else len(env)
+        smooth.append(sum(env[a:b]) / (b - a))
+
+    # Half-wave-rectified first difference = onset strength.
+    onset = [max(smooth[i] - smooth[i - 1], 0.0) for i in range(1, len(smooth))]
+    if not onset:
+        return None
+    mean = sum(onset) / len(onset)
+    onset = [max(o - mean, 0.0) for o in onset]
+    if max(onset) <= 0:
+        return None
+
+    fps = rate / hop
+    min_lag = max(1, int(fps * 60.0 / BPM_MAX))
+    max_lag = int(fps * 60.0 / BPM_MIN)
+    best_lag = None
+    best_score = -1.0
+    for lag in range(min_lag, max_lag + 1):
+        acc = 0.0
+        for i in range(lag, len(onset)):
+            acc += onset[i] * onset[i - lag]
+        if acc > best_score:
+            best_score = acc
+            best_lag = lag
+    if not best_lag:
+        return None
+
+    bpm = fps * 60.0 / best_lag
+    while bpm < 90:      # fold octave errors into a typical dance range
+        bpm *= 2
+    while bpm >= 180:
+        bpm /= 2
+    return int(round(bpm))
+
+
+def extract_waveform(samples, buckets=WAVEFORM_BUCKETS):
+    """Bucket samples into `buckets` normalized peak magnitudes (0..1). Real
+    silence in the source surfaces as near-zero bars.
+    """
+    n = len(samples)
+    if n == 0:
+        return []
+    size = max(1, n // buckets)
+    peaks = []
+    for b in range(buckets):
+        start = b * size
+        end = n if b == buckets - 1 else min(n, start + size)
+        peak = 0.0
+        for v in samples[start:end]:
+            a = v if v >= 0 else -v
+            if a > peak:
+                peak = a
+        peaks.append(peak)
+    top = max(peaks)
+    if top <= 0:
+        return [0.0 for _ in peaks]
+    return [round(p / top, 3) for p in peaks]
+
+
+def analyze_audio(audio_path, workdir):
+    """Decode once and return (bpm, waveform) computed from the real audio."""
+    samples = _decode_mono_f32(audio_path, workdir, ANALYSIS_SAMPLE_RATE)
+    waveform = extract_waveform(samples, WAVEFORM_BUCKETS)
+    bpm_slice = samples[: ANALYSIS_SAMPLE_RATE * BPM_ANALYSIS_SECONDS]
+    bpm = estimate_bpm(bpm_slice, ANALYSIS_SAMPLE_RATE)
+    return bpm, waveform
+
+
 def append_metadata(report):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with ACTIVE_METADATA.open("a") as handle:
@@ -657,8 +777,17 @@ def process_job(job_id):
             key = estimate_key(source_path, workdir)
         except Exception as exc:
             update_job(job_id, warnings=jobs[job_id].get("warnings", []) + [f"Key estimate failed: {exc}"])
+        update_job(job_id, estimated_key=key)  # surface key as soon as it's known
 
-        update_job(job_id, estimated_key=key, status="converting", progress=f"Writing {output_format.upper()}")
+        bpm = None
+        waveform = []
+        try:
+            bpm, waveform = analyze_audio(source_path, workdir)
+        except Exception as exc:
+            update_job(job_id, warnings=jobs[job_id].get("warnings", []) + [f"Audio analysis failed: {exc}"])
+        update_job(job_id, estimated_bpm=bpm, waveform=waveform)  # surface BPM + waveform live
+
+        update_job(job_id, status="converting", progress=f"Writing {output_format.upper()}")
         if output_format == "original":
             output_path = copy_original(source_path, metadata, output_dir, thumbnail_path=thumbnail_path)
         elif can_passthrough(source_path, output_format):
@@ -680,6 +809,8 @@ def process_job(job_id):
             "output_format": output_format,
             "metadata": metadata,
             "estimated_key": key,
+            "estimated_bpm": bpm,
+            "waveform": waveform,
             "warnings": jobs[job_id].get("warnings", []),
         }
         append_metadata(report)
