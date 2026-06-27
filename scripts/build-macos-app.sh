@@ -42,9 +42,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>ForMyDJ</string>
+  <string>ForMyDJs</string>
   <key>CFBundleDisplayName</key>
-  <string>ForMyDJ</string>
+  <string>ForMyDJs</string>
   <key>CFBundleIdentifier</key>
   <string>com.sloppamadewithlove.formydj</string>
   <key>CFBundleVersion</key>
@@ -104,8 +104,8 @@ cat > "$LAUNCHER_M" <<'M'
     [mainMenu addItem:appMenuItem];
     [mainMenu addItem:editMenuItem];
 
-    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"ForMyDJ"];
-    [appMenu addItemWithTitle:@"Quit ForMyDJ"
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"ForMyDJs"];
+    [appMenu addItemWithTitle:@"Quit ForMyDJs"
                        action:@selector(terminate:)
                 keyEquivalent:@"q"];
     appMenuItem.submenu = appMenu;
@@ -160,7 +160,7 @@ cat > "$LAUNCHER_M" <<'M'
     NSError *error = nil;
     [self.serverTask launchAndReturnError:&error];
     if (error) {
-        [self showError:[NSString stringWithFormat:@"Could not start ForMyDJ engine: %@", error.localizedDescription]];
+        [self showError:[NSString stringWithFormat:@"Could not start ForMyDJs engine: %@", error.localizedDescription]];
     }
 }
 
@@ -173,7 +173,7 @@ cat > "$LAUNCHER_M" <<'M'
                                                          NSWindowStyleMaskResizable)
                                                 backing:NSBackingStoreBuffered
                                                   defer:NO];
-    self.window.title = @"ForMyDJ";
+    self.window.title = @"ForMyDJs";
     [self.window center];
 
     WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
@@ -207,7 +207,7 @@ cat > "$LAUNCHER_M" <<'M'
 
 - (void)retryLoadIfNeeded {
     if (self.loadAttempts >= 20) {
-        [self showError:@"The ForMyDJ window opened, but the local engine did not respond. Close and reopen ForMyDJ."];
+        [self showError:@"The ForMyDJs window opened, but the local engine did not respond. Close and reopen ForMyDJs."];
         return;
     }
 
@@ -218,7 +218,7 @@ cat > "$LAUNCHER_M" <<'M'
 
 - (void)showError:(NSString *)message {
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"ForMyDJ";
+    alert.messageText = @"ForMyDJs";
     alert.informativeText = message;
     [alert addButtonWithTitle:@"OK"];
     [alert runModal];

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ForMyDJ</title>
+    <title>ForMyDJs</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -14,8 +14,13 @@
     </div>
     <main class="fm-wrap">
       <header class="fm-header">
-        <div class="fm-spacer"></div>
-        <h1 class="fm-title">ForMyDJ</h1>
+        <div class="fm-headleft">
+          <button id="soundToggle" type="button" class="fm-sound" aria-label="Mute sound" aria-pressed="true" title="Sound on">
+            <span class="fm-sound-on" aria-hidden="true">◍))</span>
+            <span class="fm-sound-off" aria-hidden="true">◍</span>
+          </button>
+        </div>
+        <h1 class="fm-title">ForMyDJs</h1>
         <div class="fm-keytoggle" role="group" aria-label="Key notation">
           <button type="button" class="opt active" data-key="std" aria-label="Standard key notation">Std</button>
           <button type="button" class="opt" data-key="cam" aria-label="Camelot key notation">Cam</button>
@@ -28,12 +33,12 @@
             id="linkInput"
             class="fm-paste"
             type="url"
-            placeholder="paste a SoundCloud or YouTube link…"
+            placeholder="paste a SoundCloud or YouTube link — let's dig…"
             autocomplete="off"
           />
           <div class="fm-controls">
             <button id="chooseOutput" type="button" class="ctl">
-              <span class="lbl">Folder:</span>
+              <span class="lbl">Crate:</span>
               <span id="outputName">Choose folder</span>
               <span class="caret">▾</span>
             </button>
@@ -47,7 +52,15 @@
                 <option value="mp3">MP3 320</option>
               </select>
             </div>
-            <button id="downloadBtn" type="submit" class="ctl download" disabled>Download</button>
+            <button id="downloadBtn" type="submit" class="ctl download" disabled>
+              <span class="dl-arrow" aria-hidden="true">↓</span>
+              <span class="dl-label">Download</span>
+            </button>
+          </div>
+          <div id="formatNote" class="fm-format-note" hidden>
+            <span class="fm-format-note-dot" aria-hidden="true"></span>
+            <span class="fm-format-note-text"></span>
+            <button id="formatNoteOverride" type="button" class="fm-format-note-btn"></button>
           </div>
           <input id="outputDir" type="hidden" />
         </form>
@@ -66,11 +79,11 @@
 
       <div class="fm-divider">
         <div class="line"></div>
-        <span>Recent downloads</span>
+        <span>the crate</span>
         <div class="line"></div>
       </div>
 
-      <section id="history" class="fm-history" aria-label="Recent downloads"></section>
+      <section id="history" class="fm-history" aria-label="Recent tracks"></section>
 
       <button id="errorsTab" class="fm-tab" type="button" hidden aria-expanded="false" aria-controls="errorsPanel">
         <span class="tablbl">errors</span>
