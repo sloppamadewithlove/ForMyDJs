@@ -27,7 +27,8 @@ const state = {
   userOverrodeFormat: false,
   /** @type {'wav'|'aiff'|'mp3'} The format the dropdown held before the last auto-flip. */
   formatBeforeAuto: 'aiff',
-  /** @type {boolean} */ soundEnabled: true,
+  /** @type {string|null} The crate row currently expanded to show full detail. */
+  expandedJobId: null,
 };
 
 const els = {
@@ -51,7 +52,6 @@ const els = {
   sourceTitle:  document.getElementById('sourceTitle'),
   sourceMeta:   document.getElementById('sourceMeta'),
   sourcePill:   document.getElementById('sourcePill'),
-  soundToggle:  document.getElementById('soundToggle'),
   formatNote:        document.getElementById('formatNote'),
   formatNoteText:    document.querySelector('#formatNote .fm-format-note-text'),
   formatNoteOverride: document.getElementById('formatNoteOverride'),
@@ -67,57 +67,7 @@ const prevStatusById = new Map();
 let celebrateIds = new Set();
 let seededStatuses = false;
 
-/* -------- Sound + haptics (synthesized — no audio asset files) -------- */
-
-const SOUND_KEY = 'fm-sound';
-let audioCtx = null;
-
-function loadSoundPref() {
-  state.soundEnabled = localStorage.getItem(SOUND_KEY) !== '0';
-}
-
-function ensureAudio() {
-  if (!state.soundEnabled) return null;
-  if (!audioCtx) {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return null;
-    audioCtx = new Ctx();
-  }
-  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
-  return audioCtx;
-}
-
-/**
- * Play one short synthesized blip. Kept quiet and brief so it reads as tactile
- * feedback, not noise that competes with the music a DJ is monitoring.
- */
-function blip({ freq = 440, type = 'sine', duration = 0.06, gain = 0.05, slideTo = null } = {}) {
-  const ctx = ensureAudio();
-  if (!ctx) return;
-  const now = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  const amp = ctx.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, now);
-  if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + duration);
-  amp.gain.setValueAtTime(0.0001, now);
-  amp.gain.exponentialRampToValueAtTime(gain, now + 0.008);
-  amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-  osc.connect(amp).connect(ctx.destination);
-  osc.start(now);
-  osc.stop(now + duration + 0.02);
-}
-
-const sound = {
-  tick:   () => blip({ freq: 520, type: 'triangle', duration: 0.04, gain: 0.04 }),
-  toggle: () => blip({ freq: 660, type: 'sine', duration: 0.05, gain: 0.05 }),
-  drop:   () => blip({ freq: 300, type: 'sine', duration: 0.09, gain: 0.05, slideTo: 180 }),
-  launch: () => blip({ freq: 420, type: 'triangle', duration: 0.12, gain: 0.05, slideTo: 720 }),
-  done:   () => {
-    blip({ freq: 660, type: 'sine', duration: 0.10, gain: 0.05 });
-    setTimeout(() => blip({ freq: 990, type: 'sine', duration: 0.14, gain: 0.05 }), 90);
-  },
-};
+/* -------- Haptics (no audio — button click sounds were removed) -------- */
 
 function haptic(pattern) {
   try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (_) { /* unsupported */ }
@@ -156,17 +106,22 @@ async function refreshJobs() {
  */
 function detectCompletions(jobs) {
   const fresh = new Set();
+  let newest = null;
   for (const job of jobs) {
     const prev = prevStatusById.get(job.id);
     if (seededStatuses && job.status === 'finished' && prev && prev !== 'finished') {
       fresh.add(job.id);
+      // jobs arrive newest-first, so the first fresh one is the most recent.
+      if (!newest) newest = job.id;
     }
     prevStatusById.set(job.id, job.status);
   }
   celebrateIds = fresh;
   seededStatuses = true;
   if (fresh.size > 0) {
-    sound.done();
+    // A freshly-landed track opens itself — full details + waveform — and stays
+    // open until the DJ clicks it shut or starts the next download.
+    state.expandedJobId = newest;
     haptic([10, 40, 16]);
   }
 }
@@ -186,6 +141,7 @@ async function submitLink(link) {
         output_dir: state.outputFolder,
       }),
     });
+    state.expandedJobId = null;   // a new download started — compress the open card
   } catch (err) {
     pushError(err.message);
   }
@@ -193,7 +149,6 @@ async function submitLink(link) {
 }
 
 async function chooseOutputFolder() {
-  sound.tick();
   haptic(8);
   els.chooseOutput.disabled = true;
   const previous = els.outputName.textContent;
@@ -371,6 +326,7 @@ async function uploadFiles(fileList) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || `Upload failed: ${response.status}`);
       }
+      state.expandedJobId = null;   // a new conversion started — compress the open card
     } catch (err) {
       pushError(`Upload failed for ${file.name}: ${err.message}`);
     }
@@ -616,6 +572,11 @@ function buildCrateRow(job) {
   const article = document.createElement('article');
   article.className = 'fm-row';
   if (celebrateIds.has(job.id)) article.classList.add('celebrate');
+  const expanded = state.expandedJobId === job.id && job.status === 'finished';
+  if (expanded) article.classList.add('expanded');
+
+  const main = document.createElement('div');
+  main.className = 'fm-row-main';
 
   if (job.cover_url) {
     const cover = document.createElement('div');
@@ -624,9 +585,9 @@ function buildCrateRow(job) {
     img.src = job.cover_url;
     img.alt = '';
     cover.appendChild(img);
-    article.appendChild(cover);
+    main.appendChild(cover);
   } else {
-    article.classList.add('no-cover');
+    main.classList.add('no-cover');
   }
 
   const info = document.createElement('div');
@@ -639,7 +600,7 @@ function buildCrateRow(job) {
   metaLine.className = 'fm-meta-line';
   metaLine.textContent = [job.artist, job.genre].filter(Boolean).join(' · ') || '—';
   info.appendChild(metaLine);
-  article.appendChild(info);
+  main.appendChild(info);
 
   const chips = document.createElement('div');
   chips.className = 'fm-chips';
@@ -649,11 +610,121 @@ function buildCrateRow(job) {
     if (key && key !== '—') chips.appendChild(makeChip('key', key));
     if (job.format) chips.appendChild(makeChip('fmt', job.format.toUpperCase()));
     chips.appendChild(makePill('done', 'completed'));
+    chips.appendChild(makeCaret(expanded));
   } else {
     chips.appendChild(makePill('fail', 'failed'));
   }
-  article.appendChild(chips);
+  main.appendChild(chips);
+  article.appendChild(main);
+
+  // Finished tracks open to reveal the full info they were downloaded with.
+  // The toggle lives on the header row only, so selecting text (paths, links)
+  // inside the detail panel doesn't snap it shut.
+  if (job.status === 'finished') {
+    main.classList.add('clickable');
+    main.setAttribute('role', 'button');
+    main.setAttribute('aria-expanded', String(expanded));
+    main.addEventListener('click', () => {
+      state.expandedJobId = expanded ? null : job.id;
+      haptic(6);
+      renderHistory();
+    });
+  }
+
+  if (expanded) article.appendChild(buildCrateDetail(job));
   return article;
+}
+
+function makeCaret(expanded) {
+  const caret = document.createElement('span');
+  caret.className = `fm-row-caret${expanded ? ' open' : ''}`;
+  caret.textContent = '▾';
+  caret.setAttribute('aria-hidden', 'true');
+  return caret;
+}
+
+/**
+ * The expanded panel: everything the track was downloaded with — the real
+ * waveform, the analysed BPM/key, the format/length/genre, source quality, and
+ * where it came from / landed, plus any warnings raised during processing.
+ */
+function buildCrateDetail(job) {
+  const detail = document.createElement('div');
+  detail.className = 'fm-row-detail';
+
+  detail.appendChild(buildWaveform(job.waveform));
+
+  const grid = document.createElement('div');
+  grid.className = 'fm-detail-grid';
+  const stats = [
+    ['BPM', job.estimated_bpm ? String(job.estimated_bpm) : '—'],
+    ['Key', formatKey(job.estimated_key, state.keyNotation)],
+    ['Format', (job.format || '').toUpperCase() || '—'],
+    ['Length', formatDuration(job.duration_seconds) || '—'],
+    ['Genre', job.genre || '—'],
+  ];
+  const meta = (job.report && job.report.metadata) || {};
+  const sourceQuality = formatSourceQuality(meta);
+  if (sourceQuality) stats.push(['Source', sourceQuality]);
+  for (const [label, value] of stats) grid.appendChild(makeDetailStat(label, value));
+  detail.appendChild(grid);
+
+  const lines = document.createElement('div');
+  lines.className = 'fm-detail-meta';
+  if (job.artist) lines.appendChild(makeDetailLine('Artist', job.artist));
+  if (job.input_value) {
+    lines.appendChild(makeDetailLine(job.input_kind === 'url' ? 'Source' : 'File', job.input_value));
+  }
+  if (job.output_path) lines.appendChild(makeDetailLine('Saved to', job.output_path));
+  if (job.created_at_display) lines.appendChild(makeDetailLine('Downloaded', job.created_at_display));
+  if (lines.childElementCount) detail.appendChild(lines);
+
+  if (Array.isArray(job.warnings) && job.warnings.length) {
+    const warn = document.createElement('div');
+    warn.className = 'fm-detail-warn';
+    for (const message of job.warnings) {
+      const item = document.createElement('div');
+      item.className = 'fm-detail-warn-item';
+      item.textContent = message;
+      warn.appendChild(item);
+    }
+    detail.appendChild(warn);
+  }
+  return detail;
+}
+
+function makeDetailStat(label, value) {
+  const cell = document.createElement('div');
+  cell.className = 'fm-detail-stat';
+  const v = document.createElement('span');
+  v.className = 'v';
+  v.textContent = value;
+  const k = document.createElement('span');
+  k.className = 'k';
+  k.textContent = label;
+  cell.append(v, k);
+  return cell;
+}
+
+function makeDetailLine(label, value) {
+  const row = document.createElement('div');
+  row.className = 'fm-detail-line';
+  const k = document.createElement('span');
+  k.className = 'k';
+  k.textContent = label;
+  const v = document.createElement('span');
+  v.className = 'v';
+  v.textContent = value;
+  row.append(k, v);
+  return row;
+}
+
+function formatSourceQuality(meta) {
+  const codec = meta.source_codec ? String(meta.source_codec).toUpperCase() : null;
+  const kbps = meta.source_bitrate ? `${Math.round(meta.source_bitrate / 1000)} kbps` : null;
+  const khz = meta.sample_rate ? `${(meta.sample_rate / 1000).toFixed(1)} kHz` : null;
+  const parts = [codec, kbps, khz].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
 }
 
 function makeChip(modifier, text) {
@@ -766,7 +837,6 @@ els.linkForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const link = els.linkInput.value.trim();
   if (!link) return;
-  sound.launch();
   haptic(14);
   els.linkInput.value = '';
   els.downloadBtn.disabled = true;
@@ -784,7 +854,6 @@ els.formatSelect.addEventListener('change', (event) => {
   els.formatValue.textContent = FORMAT_LABELS[value] || value;
   state.userOverrodeFormat = true;   // hand-picked → stop auto-flipping
   hideFormatNote();
-  sound.tick();
   haptic(8);
 });
 
@@ -796,24 +865,10 @@ els.formatNoteOverride.addEventListener('click', () => {
   els.formatValue.textContent = FORMAT_LABELS[target];
   state.userOverrodeFormat = true;
   hideFormatNote();
-  sound.tick();
   haptic(8);
 });
 
 els.chooseOutput.addEventListener('click', chooseOutputFolder);
-
-els.soundToggle.addEventListener('click', () => {
-  state.soundEnabled = !state.soundEnabled;
-  localStorage.setItem(SOUND_KEY, state.soundEnabled ? '1' : '0');
-  applySoundUi();
-  if (state.soundEnabled) { sound.toggle(); haptic(8); }
-});
-
-function applySoundUi() {
-  els.soundToggle.setAttribute('aria-pressed', String(state.soundEnabled));
-  els.soundToggle.setAttribute('aria-label', state.soundEnabled ? 'Mute sound' : 'Unmute sound');
-  els.soundToggle.title = state.soundEnabled ? 'Sound on' : 'Sound off';
-}
 
 els.keyToggle.forEach((opt) => {
   opt.addEventListener('click', () => {
@@ -823,7 +878,6 @@ els.keyToggle.forEach((opt) => {
     state.keyNotation = next;
     els.keyToggle.forEach((o) => o.classList.toggle('active', o.dataset.key === next));
     renderHistory();
-    sound.tick();
     haptic(6);
   });
 });
@@ -831,7 +885,6 @@ els.keyToggle.forEach((opt) => {
 els.errorsTab.addEventListener('click', () => {
   state.errorsPanelOpen = !state.errorsPanelOpen;
   renderErrors();
-  sound.tick();
 });
 
 document.addEventListener('dragover', (event) => {
@@ -843,13 +896,10 @@ document.addEventListener('drop', (event) => {
   event.preventDefault();
   const files = event.dataTransfer ? event.dataTransfer.files : null;
   if (!files || files.length === 0) return;
-  sound.drop();
   haptic([8, 30, 8]);
   uploadFiles(files);
 });
 
-loadSoundPref();
-applySoundUi();
 refreshJobs();
 setInterval(refreshJobs, 1500);
 
