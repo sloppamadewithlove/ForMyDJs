@@ -23,6 +23,11 @@ const state = {
   /** @type {string|null} */ outputFolder: null,
   /** @type {'wav'|'aiff'|'mp3'} */ format: 'aiff',
   errorsPanelOpen: false,
+  /** @type {boolean} Once the DJ picks a format by hand, stop auto-flipping it. */
+  userOverrodeFormat: false,
+  /** @type {'wav'|'aiff'|'mp3'} The format the dropdown held before the last auto-flip. */
+  formatBeforeAuto: 'aiff',
+  /** @type {boolean} */ soundEnabled: true,
 };
 
 const els = {
@@ -44,11 +49,77 @@ const els = {
   sourceTitle:  document.getElementById('sourceTitle'),
   sourceMeta:   document.getElementById('sourceMeta'),
   sourcePill:   document.getElementById('sourcePill'),
+  soundToggle:  document.getElementById('soundToggle'),
+  formatNote:        document.getElementById('formatNote'),
+  formatNoteText:    document.querySelector('#formatNote .fm-format-note-text'),
+  formatNoteOverride: document.getElementById('formatNoteOverride'),
 };
 
 const PROBE_DEBOUNCE_MS = 350;
 let probeAbort = null;
 let probeTimer = null;
+
+/* Completion tracking — diff job statuses across polls so a freshly-landed
+   track gets its payoff exactly once, and old history never re-celebrates. */
+const prevStatusById = new Map();
+let celebrateIds = new Set();
+let seededStatuses = false;
+
+/* -------- Sound + haptics (synthesized — no audio asset files) -------- */
+
+const SOUND_KEY = 'fm-sound';
+let audioCtx = null;
+
+function loadSoundPref() {
+  state.soundEnabled = localStorage.getItem(SOUND_KEY) !== '0';
+}
+
+function ensureAudio() {
+  if (!state.soundEnabled) return null;
+  if (!audioCtx) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    audioCtx = new Ctx();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+/**
+ * Play one short synthesized blip. Kept quiet and brief so it reads as tactile
+ * feedback, not noise that competes with the music a DJ is monitoring.
+ */
+function blip({ freq = 440, type = 'sine', duration = 0.06, gain = 0.05, slideTo = null } = {}) {
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const amp = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, now);
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + duration);
+  amp.gain.setValueAtTime(0.0001, now);
+  amp.gain.exponentialRampToValueAtTime(gain, now + 0.008);
+  amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  osc.connect(amp).connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + duration + 0.02);
+}
+
+const sound = {
+  tick:   () => blip({ freq: 520, type: 'triangle', duration: 0.04, gain: 0.04 }),
+  toggle: () => blip({ freq: 660, type: 'sine', duration: 0.05, gain: 0.05 }),
+  drop:   () => blip({ freq: 300, type: 'sine', duration: 0.09, gain: 0.05, slideTo: 180 }),
+  launch: () => blip({ freq: 420, type: 'triangle', duration: 0.12, gain: 0.05, slideTo: 720 }),
+  done:   () => {
+    blip({ freq: 660, type: 'sine', duration: 0.10, gain: 0.05 });
+    setTimeout(() => blip({ freq: 990, type: 'sine', duration: 0.14, gain: 0.05 }), 90);
+  },
+};
+
+function haptic(pattern) {
+  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (_) { /* unsupported */ }
+}
 
 /* -------- I/O -------- */
 
@@ -67,10 +138,34 @@ async function refreshJobs() {
     if (!state.outputFolder && data.default_output) {
       setOutputFolder(data.default_output);
     }
-    state.history = data.jobs || [];
+    const jobs = data.jobs || [];
+    detectCompletions(jobs);
+    state.history = jobs;
     renderHistory();
   } catch (err) {
     pushError(err.message);
+  }
+}
+
+/**
+ * Flag jobs that just transitioned into `finished` so renderHistory can play
+ * the payoff once. The first poll only seeds statuses (so existing history on
+ * launch doesn't all celebrate at once).
+ */
+function detectCompletions(jobs) {
+  const fresh = new Set();
+  for (const job of jobs) {
+    const prev = prevStatusById.get(job.id);
+    if (seededStatuses && job.status === 'finished' && prev && prev !== 'finished') {
+      fresh.add(job.id);
+    }
+    prevStatusById.set(job.id, job.status);
+  }
+  celebrateIds = fresh;
+  seededStatuses = true;
+  if (fresh.size > 0) {
+    sound.done();
+    haptic([10, 40, 16]);
   }
 }
 
@@ -96,6 +191,8 @@ async function submitLink(link) {
 }
 
 async function chooseOutputFolder() {
+  sound.tick();
+  haptic(8);
   els.chooseOutput.disabled = true;
   const previous = els.outputName.textContent;
   els.outputName.textContent = 'Choosing…';
@@ -169,11 +266,41 @@ function formatSourcePill(data) {
 }
 
 function applySmartFormat(data) {
+  if (state.userOverrodeFormat) return;        // the DJ chose by hand — don't fight them
   const next = pickFormatForCodec(data.codec);
-  if (state.format === next) return;
+  if (state.format === next) { hideFormatNote(); return; }
+
+  state.formatBeforeAuto = state.format;
   setFormat(next);
   els.formatSelect.value = next;
   els.formatValue.textContent = FORMAT_LABELS[next];
+  showFormatNote(data, next, state.formatBeforeAuto);
+}
+
+/**
+ * Surface *why* the format dropdown just changed, with a one-tap escape hatch
+ * back to whatever the DJ had selected before. No more silent switches.
+ */
+function showFormatNote(data, picked, previous) {
+  const codec = data.codec ? String(data.codec).toUpperCase() : 'this source';
+  const kbps = data.bitrate ? `${Math.round(data.bitrate / 1000)} kbps` : '';
+  const quality = data.lossy ? 'lossy' : 'lossless';
+  const sourceDesc = [codec, kbps].filter(Boolean).join(' ');
+
+  els.formatNoteText.replaceChildren();
+  els.formatNoteText.append('Auto-set to ');
+  const strong = document.createElement('strong');
+  strong.textContent = FORMAT_LABELS[picked];
+  els.formatNoteText.append(strong, ` — source is ${quality} ${sourceDesc}.`);
+
+  els.formatNoteOverride.textContent = `Keep ${FORMAT_LABELS[previous]}`;
+  els.formatNoteOverride.dataset.target = previous;
+  els.formatNote.hidden = false;
+}
+
+function hideFormatNote() {
+  els.formatNote.hidden = true;
+  delete els.formatNoteOverride.dataset.target;
 }
 
 /**
@@ -288,7 +415,7 @@ function renderHistory() {
   if (state.history.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'fm-empty';
-    empty.textContent = 'Paste a link to start.';
+    empty.textContent = "Crate's empty — paste a link and let's dig.";
     els.history.appendChild(empty);
     return;
   }
@@ -300,6 +427,7 @@ function renderHistory() {
 function buildRow(job) {
   const article = document.createElement('article');
   article.className = 'fm-row';
+  if (celebrateIds.has(job.id)) article.classList.add('celebrate');
 
   const hasCover = Boolean(job.cover_url);
   if (hasCover) {
@@ -359,27 +487,53 @@ function buildMetaParts(container, job) {
   });
 }
 
+const STAGE_ORDER = ['downloading', 'analyzing', 'converting'];
+const STAGE_LABELS = {
+  queued:      'queued up',
+  downloading: 'digging…',
+  analyzing:   'reading the groove…',
+  converting:  'bouncing…',
+};
+
 function buildStatus(container, job) {
   if (job.status === 'finished') {
-    container.appendChild(makePill('done', 'done'));
+    container.appendChild(makePill('done', 'locked in'));
     return;
   }
   if (job.status === 'failed') {
     container.appendChild(makePill('fail', 'failed'));
     return;
   }
-  const pct = parsePercent(job.progress);
-  if (pct !== null) {
-    const bar = document.createElement('div');
-    bar.className = 'fm-progress';
-    const fill = document.createElement('div');
-    fill.style.width = `${pct}%`;
-    bar.appendChild(fill);
-    container.appendChild(bar);
-    container.appendChild(makePill('run', `${pct}%`));
+  if (!job.status || job.status === 'queued') {
+    container.appendChild(makePill('', STAGE_LABELS.queued));
     return;
   }
-  container.appendChild(makePill('', job.status || 'queued'));
+
+  // Active job: stage dots + an indeterminate shimmer + a booth label.
+  const stageIndex = STAGE_ORDER.indexOf(job.status);
+  const wrap = document.createElement('div');
+  wrap.className = 'fm-stagewrap';
+
+  const dots = document.createElement('div');
+  dots.className = 'fm-stage-dots';
+  STAGE_ORDER.forEach((_, i) => {
+    const dot = document.createElement('i');
+    if (stageIndex >= 0 && i <= stageIndex) dot.classList.add('on');
+    if (stageIndex === i) dot.classList.add('live');
+    dots.appendChild(dot);
+  });
+  wrap.appendChild(dots);
+
+  const shimmer = document.createElement('div');
+  shimmer.className = 'fm-shimmer';
+  wrap.appendChild(shimmer);
+  container.appendChild(wrap);
+
+  let label = STAGE_LABELS[job.status] || job.status;
+  if (job.status === 'converting' && job.format) {
+    label = `bouncing → ${job.format.toUpperCase()}`;
+  }
+  container.appendChild(makePill('run', label));
 }
 
 function makePill(modifier, label) {
@@ -470,6 +624,8 @@ els.linkInput.addEventListener('input', () => {
 
   if (!value.toLowerCase().startsWith('http')) {
     hideSourceCard();
+    state.userOverrodeFormat = false;   // fresh field → let the next link auto-pick again
+    hideFormatNote();
     return;
   }
 
@@ -483,9 +639,13 @@ els.linkForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const link = els.linkInput.value.trim();
   if (!link) return;
+  sound.launch();
+  haptic(14);
   els.linkInput.value = '';
   els.downloadBtn.disabled = true;
   hideSourceCard();
+  state.userOverrodeFormat = false;   // next link starts with a clean auto-pick
+  hideFormatNote();
   await submitLink(link);
 });
 
@@ -495,9 +655,38 @@ els.formatSelect.addEventListener('change', (event) => {
   const value = /** @type {HTMLSelectElement} */ (event.target).value;
   setFormat(value);
   els.formatValue.textContent = FORMAT_LABELS[value] || value;
+  state.userOverrodeFormat = true;   // hand-picked → stop auto-flipping
+  hideFormatNote();
+  sound.tick();
+  haptic(8);
+});
+
+els.formatNoteOverride.addEventListener('click', () => {
+  const target = els.formatNoteOverride.dataset.target;
+  if (target !== 'wav' && target !== 'aiff' && target !== 'mp3') return;
+  setFormat(target);
+  els.formatSelect.value = target;
+  els.formatValue.textContent = FORMAT_LABELS[target];
+  state.userOverrodeFormat = true;
+  hideFormatNote();
+  sound.tick();
+  haptic(8);
 });
 
 els.chooseOutput.addEventListener('click', chooseOutputFolder);
+
+els.soundToggle.addEventListener('click', () => {
+  state.soundEnabled = !state.soundEnabled;
+  localStorage.setItem(SOUND_KEY, state.soundEnabled ? '1' : '0');
+  applySoundUi();
+  if (state.soundEnabled) { sound.toggle(); haptic(8); }
+});
+
+function applySoundUi() {
+  els.soundToggle.setAttribute('aria-pressed', String(state.soundEnabled));
+  els.soundToggle.setAttribute('aria-label', state.soundEnabled ? 'Mute sound' : 'Unmute sound');
+  els.soundToggle.title = state.soundEnabled ? 'Sound on' : 'Sound off';
+}
 
 els.keyToggle.forEach((opt) => {
   opt.addEventListener('click', () => {
@@ -507,12 +696,15 @@ els.keyToggle.forEach((opt) => {
     state.keyNotation = next;
     els.keyToggle.forEach((o) => o.classList.toggle('active', o.dataset.key === next));
     renderHistory();
+    sound.tick();
+    haptic(6);
   });
 });
 
 els.errorsTab.addEventListener('click', () => {
   state.errorsPanelOpen = !state.errorsPanelOpen;
   renderErrors();
+  sound.tick();
 });
 
 document.addEventListener('dragover', (event) => {
@@ -524,9 +716,13 @@ document.addEventListener('drop', (event) => {
   event.preventDefault();
   const files = event.dataTransfer ? event.dataTransfer.files : null;
   if (!files || files.length === 0) return;
+  sound.drop();
+  haptic([8, 30, 8]);
   uploadFiles(files);
 });
 
+loadSoundPref();
+applySoundUi();
 refreshJobs();
 setInterval(refreshJobs, 1500);
 

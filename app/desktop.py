@@ -10,7 +10,7 @@ import server
 class ForMyDJDesktop(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("ForMyDJ")
+        self.title("ForMyDJs")
         self.geometry("920x560")
         self.minsize(820, 480)
 
@@ -32,7 +32,7 @@ class ForMyDJDesktop(tk.Tk):
 
         title_block = ttk.Frame(header)
         title_block.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(title_block, text="ForMyDJ", font=("SF Pro Display", 24, "bold")).pack(anchor=tk.W)
+        ttk.Label(title_block, text="ForMyDJs", font=("SF Pro Display", 24, "bold")).pack(anchor=tk.W)
         ttk.Label(title_block, text="Local DJ audio intake").pack(anchor=tk.W)
 
         ttk.Button(header, text="Clear Cache", command=self.clear_cache).pack(side=tk.RIGHT)

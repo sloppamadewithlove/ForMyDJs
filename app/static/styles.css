@@ -1,4 +1,4 @@
-/* ForMyDJ — Iron & Neon palette + Hero Stack layout */
+/* ForMyDJs — Iron & Neon palette + Hero Stack layout */
 
 :root {
   --p-bg:          #3a3f45;
@@ -14,6 +14,13 @@
   --p-success:     #8ec196;
   --p-warning:     #e0b370;
   --p-danger:      #d28080;
+
+  /* Tactile depth — a top highlight + a grounded drop shadow read as a
+     physical, pressable surface on the dark palette. */
+  --lift-rest:  inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.28);
+  --lift-hover: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 3px 9px rgba(0, 0, 0, 0.34);
+  --lift-press: inset 0 2px 5px rgba(0, 0, 0, 0.38);
+  --ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 * { box-sizing: border-box; }
@@ -25,12 +32,18 @@ body {
   color: var(--p-text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 button, input, select {
   font: inherit;
   color: inherit;
 }
+
+/* Numbers that update in place shouldn't reflow */
+.fm-status, .badge, .fm-source-pill, .fm-format-note { font-variant-numeric: tabular-nums; }
 
 .fm-update {
   position: sticky;
@@ -60,6 +73,7 @@ button, input, select {
   line-height: 1;
   cursor: pointer;
   padding: 0 4px;
+  transition: color 120ms var(--ease);
 }
 .fm-update-close:hover { color: #fff; }
 
@@ -82,13 +96,41 @@ button, input, select {
   border-bottom: 1px solid var(--p-edge);
 }
 
+.fm-headleft { justify-self: start; }
+
 .fm-title {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.01em;
   text-align: center;
+  text-wrap: balance;
 }
+
+/* Sound toggle */
+.fm-sound {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--p-surface);
+  border: 1px solid var(--p-edge);
+  border-radius: 7px;
+  color: var(--p-muted);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  box-shadow: var(--lift-rest);
+  transition: transform 120ms var(--ease), box-shadow 120ms var(--ease), color 120ms var(--ease);
+}
+.fm-sound:hover { transform: translateY(-1px); box-shadow: var(--lift-hover); color: var(--p-text); }
+.fm-sound:active { transform: translateY(1px); box-shadow: var(--lift-press); }
+.fm-sound[aria-pressed="true"] { color: var(--p-accent); }
+.fm-sound .fm-sound-off { display: none; }
+.fm-sound[aria-pressed="false"] .fm-sound-on { display: none; }
+.fm-sound[aria-pressed="false"] .fm-sound-off { display: inline; }
 
 .fm-keytoggle {
   justify-self: end;
@@ -99,6 +141,7 @@ button, input, select {
   border-radius: 7px;
   overflow: hidden;
   font-size: 11px;
+  box-shadow: var(--lift-rest);
 }
 
 .fm-keytoggle .opt {
@@ -108,7 +151,11 @@ button, input, select {
   color: var(--p-muted);
   cursor: pointer;
   text-align: center;
+  transition: background 140ms var(--ease), color 140ms var(--ease);
 }
+
+.fm-keytoggle .opt:hover { color: var(--p-text); }
+.fm-keytoggle .opt:active { transform: translateY(0.5px); }
 
 .fm-keytoggle .opt.active {
   background: var(--p-accent);
@@ -129,10 +176,15 @@ button, input, select {
   color: var(--p-text);
   font-size: 13px;
   outline: none;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
 }
 
 .fm-paste::placeholder { color: var(--p-muted); }
-.fm-paste:focus { border-color: var(--p-accent); }
+.fm-paste:focus {
+  border-color: var(--p-accent);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22), 0 0 0 3px var(--p-accent-soft);
+}
 
 .fm-controls {
   display: grid;
@@ -155,7 +207,12 @@ button, input, select {
   white-space: nowrap;
   text-overflow: ellipsis;
   cursor: pointer;
+  box-shadow: var(--lift-rest);
+  transition: transform 120ms var(--ease), box-shadow 120ms var(--ease), background 120ms var(--ease);
 }
+
+.fm-controls .ctl:hover { transform: translateY(-1px); box-shadow: var(--lift-hover); background: var(--p-surface-2); }
+.fm-controls .ctl:active { transform: translateY(1px); box-shadow: var(--lift-press); background: var(--p-surface); }
 
 .fm-controls .ctl .lbl {
   color: var(--p-muted);
@@ -166,7 +223,9 @@ button, input, select {
 .fm-controls .ctl .caret {
   margin-left: auto;
   color: var(--p-muted);
+  transition: transform 140ms var(--ease);
 }
+.fm-controls .ctl:hover .caret { transform: translateY(1px); }
 
 .fm-controls .format-ctl { position: relative; }
 
@@ -203,12 +262,82 @@ button, input, select {
   border-color: transparent;
   font-weight: 600;
   padding: 0 18px;
+  gap: 7px;
   justify-content: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 2px 7px rgba(109, 212, 216, 0.28);
+}
+
+.fm-controls .download .dl-arrow {
+  font-size: 14px;
+  line-height: 1;
+  transform: translateY(0);
+  transition: transform 160ms var(--ease);
+}
+
+.fm-controls .download:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #7ee0e4;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 5px 16px rgba(109, 212, 216, 0.42);
+}
+.fm-controls .download:hover:not(:disabled) .dl-arrow { transform: translateY(2px); }
+.fm-controls .download:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.22);
 }
 
 .fm-controls .download:disabled {
-  opacity: 0.5;
+  opacity: 0.42;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Format auto-explain note */
+.fm-format-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 9px;
+  padding: 8px 11px;
+  font-size: 11.5px;
+  color: var(--p-muted);
+  background: rgba(224, 179, 112, 0.09);
+  border: 1px solid rgba(224, 179, 112, 0.3);
+  border-radius: 9px;
+  animation: fm-note-in 240ms var(--ease);
+}
+.fm-format-note[hidden] { display: none; }
+
+.fm-format-note-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p-warning);
+  box-shadow: 0 0 7px var(--p-warning);
+}
+
+.fm-format-note-text { flex: 1; line-height: 1.4; }
+.fm-format-note-text strong { color: var(--p-text); font-weight: 600; }
+
+.fm-format-note-btn {
+  flex: none;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--p-accent);
+  border-radius: 7px;
+  color: var(--p-accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--lift-rest);
+  transition: transform 120ms var(--ease), box-shadow 120ms var(--ease), background 120ms var(--ease);
+}
+.fm-format-note-btn:hover { transform: translateY(-1px); background: var(--p-accent-soft); box-shadow: var(--lift-hover); }
+.fm-format-note-btn:active { transform: translateY(1px); box-shadow: var(--lift-press); }
+
+@keyframes fm-note-in {
+  from { opacity: 0; transform: translateY(-4px); filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
 }
 
 /* Divider */
@@ -233,6 +362,7 @@ button, input, select {
   color: var(--p-muted);
   font-size: 12px;
   padding: 18px 0;
+  text-wrap: pretty;
 }
 
 .fm-row {
@@ -245,7 +375,11 @@ button, input, select {
   border-radius: 10px;
   padding: 8px 12px 8px 8px;
   margin: 6px 0;
+  box-shadow: var(--lift-rest);
+  transition: transform 140ms var(--ease), box-shadow 140ms var(--ease);
 }
+
+.fm-row:hover { transform: translateY(-1px); box-shadow: var(--lift-hover); }
 
 .fm-row.no-cover {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -266,6 +400,8 @@ button, input, select {
   height: 100%;
   object-fit: cover;
   display: block;
+  outline: 1px solid rgba(0, 0, 0, 0.18);
+  outline-offset: -1px;
 }
 
 .fm-info { min-width: 0; }
@@ -286,6 +422,7 @@ button, input, select {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .fm-info .fm-meta-line .sep {
@@ -301,6 +438,48 @@ button, input, select {
   font-size: 11px;
 }
 
+/* Live progress stages */
+.fm-stagewrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.fm-stage-dots { display: flex; gap: 4px; }
+
+.fm-stage-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--p-surface-2);
+  transition: background 240ms var(--ease), box-shadow 240ms var(--ease);
+}
+
+.fm-stage-dots i.on { background: var(--p-accent); box-shadow: 0 0 7px var(--p-accent-soft); }
+.fm-stage-dots i.live { animation: fm-dot-pulse 1.1s ease-in-out infinite; }
+
+.fm-shimmer {
+  width: 84px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--p-surface-2);
+  overflow: hidden;
+  position: relative;
+}
+
+.fm-shimmer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--p-accent), transparent);
+  animation: fm-shimmer 1.2s linear infinite;
+}
+
 .fm-status .pill {
   padding: 3px 8px;
   border-radius: 999px;
@@ -314,17 +493,39 @@ button, input, select {
 .fm-status .pill.run  { color: var(--p-accent);  border-color: var(--p-accent); }
 .fm-status .pill.fail { color: var(--p-danger);  border-color: var(--p-danger); }
 
-.fm-progress {
-  width: 80px;
-  height: 4px;
-  background: var(--p-surface-2);
-  border-radius: 999px;
-  overflow: hidden;
+@keyframes fm-shimmer {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(360%); }
 }
 
-.fm-progress > div {
-  height: 100%;
-  background: var(--p-accent);
+@keyframes fm-dot-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+
+/* Completion payoff — plays once when a track newly lands */
+.fm-row.celebrate { animation: fm-celebrate 950ms var(--ease); }
+
+@keyframes fm-celebrate {
+  0%   { box-shadow: var(--lift-rest); transform: translateY(0) scale(1); }
+  22%  { box-shadow: 0 0 0 2px rgba(142, 193, 150, 0.55), 0 7px 20px rgba(142, 193, 150, 0.3); transform: translateY(-2px) scale(1.012); }
+  100% { box-shadow: var(--lift-rest); transform: translateY(0) scale(1); }
+}
+
+.fm-row.celebrate .fm-cover img { animation: fm-cover-pop 640ms var(--ease); }
+
+@keyframes fm-cover-pop {
+  0%   { transform: scale(0.62); opacity: 0; filter: blur(3px); }
+  60%  { transform: scale(1.06); opacity: 1; filter: blur(0); }
+  100% { transform: scale(1); }
+}
+
+.fm-row.celebrate .pill.done { animation: fm-pill-pop 640ms var(--ease); }
+
+@keyframes fm-pill-pop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  55%  { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 /* Errors tab (right edge, pulsing nudge) */
@@ -347,8 +548,10 @@ button, input, select {
   cursor: pointer;
   box-shadow: 0 0 0 0 var(--p-accent-soft);
   animation: fm-nudge 2.6s ease-in-out infinite;
+  transition: color 120ms var(--ease), background 120ms var(--ease);
 }
 
+.fm-tab:hover { color: var(--p-text); background: var(--p-surface); }
 .fm-tab[hidden] { display: none; }
 
 .fm-tab .tablbl {
@@ -406,9 +609,11 @@ button, input, select {
 .fm-errors-panel .err-item:last-child { border-bottom: none; }
 
 /* Keyboard focus rings */
+.fm-sound:focus-visible,
 .fm-keytoggle .opt:focus-visible,
 .fm-controls .ctl:focus-visible,
 .fm-controls .format-ctl:focus-within,
+.fm-format-note-btn:focus-visible,
 .fm-tab:focus-visible {
   outline: 2px solid var(--p-accent);
   outline-offset: 1px;
@@ -425,6 +630,8 @@ button, input, select {
   background: var(--p-surface);
   border: 1px solid var(--p-edge);
   border-radius: 10px;
+  box-shadow: var(--lift-rest);
+  animation: fm-note-in 220ms var(--ease);
 }
 
 .fm-source-card[hidden] { display: none; }
@@ -442,6 +649,8 @@ button, input, select {
   height: 100%;
   object-fit: cover;
   display: block;
+  outline: 1px solid rgba(0, 0, 0, 0.18);
+  outline-offset: -1px;
 }
 
 .fm-source-info { min-width: 0; }
@@ -462,6 +671,7 @@ button, input, select {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .fm-source-pill {
@@ -484,4 +694,14 @@ button, input, select {
 .fm-source-pill.lossless {
   color: var(--p-success);
   border-color: var(--p-success);
+}
+
+/* Respect users who prefer less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .fm-shimmer::after { animation: none; opacity: 0.6; }
 }
