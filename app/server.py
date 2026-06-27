@@ -927,6 +927,23 @@ class Handler(SimpleHTTPRequestHandler):
             return str(STATIC / "index.html")
         return str(STATIC / parsed.path.lstrip("/"))
 
+    def end_headers(self):
+        # This is a localhost desktop wrapper — there is no benefit to caching,
+        # and a stale WebView cache means an app update shows the old UI. Force
+        # every response fresh so updates always take effect immediately.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
+    def send_head(self):
+        # Defeat conditional-request 304s: strip the request validators so
+        # SimpleHTTPRequestHandler can never answer "Not Modified" from cache.
+        for header in ("If-Modified-Since", "If-None-Match"):
+            if header in self.headers:
+                del self.headers[header]
+        return super().send_head()
+
     def send_json(self, payload, status=200):
         body = json.dumps(payload).encode()
         self.send_response(status)

@@ -177,6 +177,9 @@ cat > "$LAUNCHER_M" <<'M'
     [self.window center];
 
     WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
+    // No persistent cache: this WebView only ever loads the freshly-bundled
+    // localhost UI, so an app update must never be masked by a stale disk cache.
+    configuration.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
     self.webView = [[WKWebView alloc] initWithFrame:self.window.contentView.bounds configuration:configuration];
     self.webView.navigationDelegate = self;
     self.webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -194,7 +197,10 @@ cat > "$LAUNCHER_M" <<'M'
 - (void)loadApp {
     self.loadAttempts += 1;
     NSURL *url = [NSURL URLWithString:@"http://127.0.0.1:8765"];
-    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:url
+                                            cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData
+                                        timeoutInterval:30.0];
+    [self.webView loadRequest:request];
 }
 
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
