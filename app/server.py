@@ -37,9 +37,13 @@ MAX_KEY_SECONDS = 300
 KEY_SAMPLE_RATE = 11025
 PROBE_TIMEOUT_SECONDS = 10
 ANALYSIS_SAMPLE_RATE = 8000
-BPM_ANALYSIS_SECONDS = 120
-BPM_MIN = 70
-BPM_MAX = 180
+BPM_ANALYSIS_SECONDS = 90       # length of the window we actually analyse
+BPM_SKIP_SECONDS = 30          # skip the intro/breakdown so the groove drives tempo
+BPM_MIN = 70                   # perceptual reporting range (slowest beat)
+BPM_MAX = 180                  # perceptual reporting range (fastest beat)
+BPM_PRIOR_CENTER = 125.0       # log-normal tempo prior centre (house/techno/prog)
+BPM_PRIOR_SIGMA = 0.32         # prior width in natural-log space (~a third of an octave)
+BPM_KICK_CUTOFF_HZ = 200.0     # low-pass emphasis so the kick — not melody — drives onsets
 WAVEFORM_BUCKETS = 64
 UPDATE_CACHE = CACHE_DIR / "update-check.json"
 UPDATE_CHECK_MAX_AGE_SECONDS = 6 * 60 * 60  # 6 hours
@@ -630,8 +634,15 @@ def _decode_mono_f32(audio_path, workdir, rate, seconds=None):
 
 
 def estimate_bpm(samples, rate):
-    """Estimate tempo from mono samples via an energy-onset envelope and
-    autocorrelation, folded into a dance-friendly range.
+    """Estimate tempo from mono samples.
+
+    Builds a kick-emphasised onset envelope, autocorrelates it, then picks a
+    tempo with a comb filter (rewarding a beat whose 2x/3x/4x bar-level
+    multiples are also supported) weighted by a perceptual log-normal prior
+    around typical dance tempo. This locks onto the actual beat instead of a
+    faster subdivision — the classic "123 BPM read as 162" octave error — and
+    replaces the old blind "double anything under 90" fold, which mechanically
+    forced any genuine 70-89 BPM detection up into the 140-178 range.
 
     Real analysis of the actual audio (no metadata guess). Returns an int BPM,
     or None when the signal is too short or too quiet to judge.
@@ -643,13 +654,20 @@ def estimate_bpm(samples, rate):
     if frame_count < 64:
         return None
 
-    # Energy envelope per frame.
+    # Kick-emphasised energy envelope: a one-pole low-pass isolates the
+    # low-frequency kick that defines dance tempo, so melodic content and
+    # high-percussion subdivisions don't dominate the onset signal.
+    alpha = 1.0 - math.exp(-2.0 * math.pi * BPM_KICK_CUTOFF_HZ / rate)
     env = []
-    for f in range(frame_count):
-        start = f * hop
+    lp = 0.0
+    pos = 0
+    for _ in range(frame_count):
+        chunk = samples[pos:pos + hop]
+        pos += hop
         acc = 0.0
-        for v in samples[start:start + hop]:
-            acc += v * v
+        for v in chunk:
+            lp += alpha * (v - lp)
+            acc += lp * lp
         env.append(math.sqrt(acc / hop))
 
     # Smooth the envelope (centered moving average) to suppress sub-audio
@@ -667,30 +685,50 @@ def estimate_bpm(samples, rate):
         return None
     mean = sum(onset) / len(onset)
     onset = [max(o - mean, 0.0) for o in onset]
+    n = len(onset)
     if max(onset) <= 0:
         return None
 
     fps = rate / hop
-    min_lag = max(1, int(fps * 60.0 / BPM_MAX))
-    max_lag = int(fps * 60.0 / BPM_MIN)
+
+    # Normalised autocorrelation over a broad lag range so a candidate beat's
+    # bar-level multiples (2x/3x/4x the period) are visible to the comb filter.
+    # Dividing by the term count removes the short-lag (fast-tempo) bias of a
+    # raw autocorrelation sum.
+    search_lo = max(1, int(fps * 60.0 / 210.0))   # peaks up to ~210 BPM
+    cand_lo = max(search_lo, int(fps * 60.0 / BPM_MAX))
+    cand_hi = int(fps * 60.0 / BPM_MIN)
+    comb_hi = min(n - 1, cand_hi * 4)             # need multiples for the comb
+    if comb_hi <= search_lo:
+        return None
+    ac = [0.0] * (comb_hi + 1)
+    for lag in range(search_lo, comb_hi + 1):
+        acc = 0.0
+        for i in range(lag, n):
+            acc += onset[i] * onset[i - lag]
+        ac[lag] = acc / (n - lag)
+
+    # Score every candidate beat period: comb support across its harmonics,
+    # weighted by how musically likely that tempo is.
+    comb_weights = (1.0, 0.7, 0.5, 0.3)           # beat, then bar-level support
     best_lag = None
     best_score = -1.0
-    for lag in range(min_lag, max_lag + 1):
-        acc = 0.0
-        for i in range(lag, len(onset)):
-            acc += onset[i] * onset[i - lag]
-        if acc > best_score:
-            best_score = acc
+    for lag in range(cand_lo, cand_hi + 1):
+        comb = 0.0
+        for k, wk in enumerate(comb_weights, start=1):
+            ml = lag * k
+            if ml <= comb_hi:
+                comb += wk * ac[ml]
+        bpm = fps * 60.0 / lag
+        prior = math.exp(-0.5 * (math.log(bpm / BPM_PRIOR_CENTER) / BPM_PRIOR_SIGMA) ** 2)
+        score = comb * prior
+        if score > best_score:
+            best_score = score
             best_lag = lag
     if not best_lag:
         return None
 
-    bpm = fps * 60.0 / best_lag
-    while bpm < 90:      # fold octave errors into a typical dance range
-        bpm *= 2
-    while bpm >= 180:
-        bpm /= 2
-    return int(round(bpm))
+    return int(round(fps * 60.0 / best_lag))
 
 
 def extract_waveform(samples, buckets=WAVEFORM_BUCKETS):
@@ -717,12 +755,24 @@ def extract_waveform(samples, buckets=WAVEFORM_BUCKETS):
     return [round(p / top, 3) for p in peaks]
 
 
+def _tempo_window(samples, rate):
+    """Pick a representative slice for tempo. The first ~30s of a club track is
+    usually the intro/breakdown (sparse kick, pads, arpeggios) — the least
+    tempo-defining part — so skip it and analyse the main groove. Short tracks
+    fall back to the whole thing."""
+    skip = rate * BPM_SKIP_SECONDS
+    window = rate * BPM_ANALYSIS_SECONDS
+    min_after = rate * 20  # need ~20s of groove past the intro to bother skipping
+    if len(samples) >= skip + min_after:
+        return samples[skip:skip + window]
+    return samples[:window]
+
+
 def analyze_audio(audio_path, workdir):
     """Decode once and return (bpm, waveform) computed from the real audio."""
     samples = _decode_mono_f32(audio_path, workdir, ANALYSIS_SAMPLE_RATE)
     waveform = extract_waveform(samples, WAVEFORM_BUCKETS)
-    bpm_slice = samples[: ANALYSIS_SAMPLE_RATE * BPM_ANALYSIS_SECONDS]
-    bpm = estimate_bpm(bpm_slice, ANALYSIS_SAMPLE_RATE)
+    bpm = estimate_bpm(_tempo_window(samples, ANALYSIS_SAMPLE_RATE), ANALYSIS_SAMPLE_RATE)
     return bpm, waveform
 
 
