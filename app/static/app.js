@@ -184,8 +184,39 @@ async function probeUrl(url) {
   } catch (err) {
     if (err.name === 'AbortError') return;
     if (probeAbort !== controller) return;
-    hideSourceCard();
+    // Don't go silent: a failed scan now says why (e.g. a DRM / sign-in-gated
+    // SoundCloud track). Only for a complete-looking URL, so mid-typing pauses
+    // don't flash an error for a half-entered link.
+    if (looksLikeResolvableUrl(url)) {
+      showSourceError(err.message);
+    } else {
+      hideSourceCard();
+    }
   }
+}
+
+/** A URL the source resolver could plausibly accept — has a scheme, a dotted
+ *  host, and a path beyond "/". Used to gate when probe errors are worth showing. */
+function looksLikeResolvableUrl(value) {
+  try {
+    const u = new URL(value);
+    return (u.protocol === 'http:' || u.protocol === 'https:')
+      && u.hostname.includes('.')
+      && u.pathname.replace(/\/+$/g, '').length > 1;
+  } catch (_) {
+    return false;
+  }
+}
+
+function showSourceError(message) {
+  els.sourceCover.removeAttribute('src');
+  els.sourceCover.alt = '';
+  els.sourceTitle.textContent = "Can't grab this link";
+  els.sourceMeta.textContent = message || 'Something went wrong reading this link.';
+  els.sourcePill.textContent = "can't scan";
+  els.sourcePill.className = 'fm-source-pill error';
+  els.sourceCard.classList.add('error');
+  els.sourceCard.hidden = false;
 }
 
 function populateSourceCard(data) {
@@ -209,6 +240,7 @@ function populateSourceCard(data) {
   els.sourcePill.textContent = pill.label;
   els.sourcePill.className = `fm-source-pill ${pill.modifier}`;
 
+  els.sourceCard.classList.remove('error');
   els.sourceCard.hidden = false;
 }
 
@@ -302,6 +334,7 @@ function hideSourceCard() {
   probeAbort = null;
   probeTimer = null;
   els.sourceCard.hidden = true;
+  els.sourceCard.classList.remove('error');
   els.sourceCover.removeAttribute('src');
   els.sourceCover.alt = '';
   els.sourceTitle.textContent = '—';
@@ -436,17 +469,83 @@ function renderRendering(active) {
   }
 }
 
+/* The crate rows had the same wipe-and-rebuild problem the hero cards solved:
+   replaceChildren() every 1.5s poll recreated the open row, re-firing the
+   .fm-row-detail entrance animation each time (the visible "spasm"). Reconcile
+   in place so a row is rebuilt only when its visible content or expanded state
+   actually changes — the open panel then animates exactly once, on open. */
+const crateCards = new Map(); // jobId -> { sig, el }
+
+function crateSignature(job) {
+  const expanded = state.expandedJobId === job.id && job.status === 'finished';
+  return JSON.stringify([
+    job.status,
+    job.cover_url || '',
+    job.title || job.input_value || '',
+    job.artist || '',
+    job.genre || '',
+    job.estimated_bpm || '',
+    job.estimated_key || '',
+    state.keyNotation,
+    job.format || '',
+    job.duration_seconds || '',
+    Array.isArray(job.waveform) ? job.waveform.length : 0,
+    job.output_path || '',
+    job.created_at_display || '',
+    Array.isArray(job.warnings) ? job.warnings.length : 0,
+    job.error || '',
+    expanded,
+  ]);
+}
+
 function renderCrate(done) {
-  els.history.replaceChildren();
+  const list = els.history;
+
   if (done.length === 0) {
+    crateCards.clear();
+    list.replaceChildren();
     const empty = document.createElement('div');
     empty.className = 'fm-empty';
     empty.textContent = "Crate's empty — paste a link and let's dig.";
-    els.history.appendChild(empty);
+    list.appendChild(empty);
     return;
   }
+
+  // Drop the empty-state placeholder (if it's showing) before reconciling rows.
+  const placeholder = list.querySelector('.fm-empty');
+  if (placeholder) placeholder.remove();
+
+  const seen = new Set();
+  let prev = null;
   for (const job of done) {
-    els.history.appendChild(buildCrateRow(job));
+    seen.add(job.id);
+    const sig = crateSignature(job);
+    let entry = crateCards.get(job.id);
+    if (!entry) {
+      entry = { sig, el: buildCrateRow(job) };
+      crateCards.set(job.id, entry);
+    } else if (entry.sig !== sig) {
+      const fresh = buildCrateRow(job); // one rebuild per real change, not per poll
+      entry.el.replaceWith(fresh);
+      entry.el = fresh;
+      entry.sig = sig;
+    }
+    // `celebrate` is a one-shot that drops after a single poll; keep it out of
+    // the signature and sync it here so its absence never forces a rebuild
+    // (which would re-fire the open panel's entrance animation).
+    entry.el.classList.toggle('celebrate', celebrateIds.has(job.id));
+
+    // Reorder in place; moving an attached node doesn't restart its animations.
+    const anchor = prev ? prev.nextSibling : list.firstChild;
+    if (anchor !== entry.el) list.insertBefore(entry.el, anchor);
+    prev = entry.el;
+  }
+
+  for (const [id, entry] of crateCards) {
+    if (!seen.has(id)) {
+      entry.el.remove();
+      crateCards.delete(id);
+    }
   }
 }
 
@@ -600,6 +699,13 @@ function buildCrateRow(job) {
   metaLine.className = 'fm-meta-line';
   metaLine.textContent = [job.artist, job.genre].filter(Boolean).join(' · ') || '—';
   info.appendChild(metaLine);
+  // A failed job explains itself inline — no more silent red "failed" pill.
+  if (job.status === 'failed' && job.error) {
+    const errLine = document.createElement('div');
+    errLine.className = 'fm-row-error';
+    errLine.textContent = job.error;
+    info.appendChild(errLine);
+  }
   main.appendChild(info);
 
   const chips = document.createElement('div');
