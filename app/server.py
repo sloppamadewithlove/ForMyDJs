@@ -255,10 +255,54 @@ def build_probe_response(info):
     }
 
 
+def friendly_source_error(stderr, url):
+    """Translate raw yt-dlp stderr into a short message fit for the UI.
+
+    The case that prompted this: SoundCloud serves monetized / Go+ tracks as
+    DRM-only or sign-in-gated to anonymous clients. Their plain MP3 transcodings
+    404 (401 unauthenticated) and the only streams that resolve are FairPlay /
+    Widevine DRM, which can't be decrypted without an account — so there is no
+    anonymous way to fetch the audio. yt-dlp simply dies on the 404 ("Unable to
+    download JSON metadata"), which otherwise reaches the user as silence. Name
+    the real reason instead, while letting ordinary failures pass through.
+    """
+    text = (stderr or "").strip()
+    low = text.lower()
+    host = (urlparse(url).netloc or "").lower()
+    is_soundcloud = "soundcloud" in host or "soundcloud" in low
+
+    # Precise signal for the DRM / login-gated case (the per-format fetch failing),
+    # distinct from a plain resolve 404 on a deleted/private track ("webpage").
+    sc_gated = is_soundcloud and (
+        "drm" in low
+        or "http error 401" in low
+        or "json metadata" in low
+        or "format info" in low
+        or "requested format is not available" in low
+    )
+    if sc_gated:
+        return (
+            "SoundCloud is serving this track as DRM-protected / sign-in-only "
+            "(a monetized or Go+ track), so it can't be downloaded anonymously. "
+            "Tracks that offer free streaming or a download still work."
+        )
+    if "drm" in low:
+        return "This track is DRM-protected, so it can't be downloaded."
+    if "http error 403" in low or "private" in low or "forbidden" in low:
+        return "This track looks private or restricted at the source."
+    if "unsupported url" in low or "is not a valid url" in low:
+        return "That doesn't look like a link this app can read."
+    if "http error 404" in low or "not found" in low or "unable to extract" in low:
+        return "Couldn't read this link — the track may be private, region-locked, or removed."
+    if "timed out" in low or "timeout" in low:
+        return "The source timed out. Check your connection and try again."
+    return text.splitlines()[-1] if text else "Couldn't read this link."
+
+
 def probe_url(url):
     """Run `yt-dlp -j` against URL and return a probe response dict.
 
-    Raises RuntimeError with the yt-dlp error message on any failure.
+    Raises RuntimeError with a UI-friendly error message on any failure.
     """
     try:
         result = subprocess.run(
@@ -271,9 +315,7 @@ def probe_url(url):
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"Probe timed out after {PROBE_TIMEOUT_SECONDS} seconds")
     if result.returncode != 0:
-        stripped = result.stderr.strip()
-        message = stripped.splitlines()[-1] if stripped else "yt-dlp failed"
-        raise RuntimeError(message)
+        raise RuntimeError(friendly_source_error(result.stderr, url))
     info = json.loads(result.stdout)
     return build_probe_response(info)
 
@@ -287,6 +329,18 @@ def run(cmd):
     result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"{cmd[0]} failed")
+    return result
+
+
+def run_ytdlp(cmd, url):
+    """Run a yt-dlp command, mapping failures to a UI-friendly reason.
+
+    Same translation the probe uses, so a download that hits a DRM / gated
+    SoundCloud track explains itself in the crate instead of dumping a traceback.
+    """
+    result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        raise RuntimeError(friendly_source_error(result.stderr, url))
     return result
 
 
@@ -394,7 +448,7 @@ def warnings_for(metadata, output_format):
 
 def download_source(url, workdir):
     output_template = str(workdir / "source.%(ext)s")
-    run([
+    run_ytdlp([
         YTDLP,
         "--no-playlist",
         "--ignore-config",
@@ -405,7 +459,7 @@ def download_source(url, workdir):
         "--convert-thumbnails", "jpg",
         "-o", output_template,
         url,
-    ])
+    ], url)
     audio_extensions_excluded = {"json", "jpg", "jpeg", "png", "webp", "part"}
     audio_candidates = [
         path for path in workdir.iterdir()

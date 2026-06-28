@@ -513,6 +513,14 @@ button, input, select {
   opacity: 0.5;
 }
 
+.fm-info .fm-row-error {
+  font-size: 11px;
+  color: var(--p-danger);
+  margin-top: 3px;
+  white-space: normal;
+  text-wrap: pretty;
+}
+
 .fm-status {
   display: flex;
   align-items: center;
@@ -775,6 +783,20 @@ button, input, select {
 .fm-source-pill.lossless {
   color: var(--p-success);
   border-color: var(--p-success);
+}
+
+/* Scan failed (e.g. a DRM / sign-in-gated SoundCloud track) — say so, don't hide */
+.fm-source-card.error { border-color: var(--p-danger); }
+.fm-source-card.error .fm-source-title { color: var(--p-danger); }
+.fm-source-card.error .fm-source-meta {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  color: var(--p-muted);
+}
+.fm-source-pill.error {
+  color: var(--p-danger);
+  border-color: var(--p-danger);
 }
 
 /* ===== Club: Rendering section ===== */
